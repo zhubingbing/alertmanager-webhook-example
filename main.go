@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"sync"
@@ -14,6 +17,10 @@ type (
 
 	// Timestamp is a helper for (un)marhalling time
 	Timestamp time.Time
+
+	Message struct {
+		Text string `json:"text"`
+	}
 
 	// HookMessage is the message we receive from Alertmanager
 	HookMessage struct {
@@ -30,10 +37,12 @@ type (
 
 	// Alert is a single alert.
 	Alert struct {
-		Labels      map[string]string `json:"labels"`
-		Annotations map[string]string `json:"annotations"`
-		StartsAt    string            `json:"startsAt,omitempty"`
-		EndsAt      string            `json:"EndsAt,omitempty"`
+		Status       string            `json:"status"`
+		Labels       map[string]string `json:"labels"`
+		Annotations  map[string]string `json:"annotations"`
+		StartsAt     string            `json:"startsAt,omitempty"`
+		EndsAt       string            `json:"EndsAt,omitempty"`
+		GeneratorURL string            `json:"generatorURL"`
 	}
 
 	// just an example alert store. in a real hook, you would do something useful
@@ -45,7 +54,7 @@ type (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "address to listen for webhook")
+	addr := flag.String("addr", ":8888", "address to listen for webhook")
 	capacity := flag.Int("cap", 64, "capacity of the simple alerts store")
 	flag.Parse()
 
@@ -76,7 +85,7 @@ func (s *alertStore) alertsHandler(w http.ResponseWriter, r *http.Request) {
 func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	w.Header().Set("Content-Type", "application/json")
-
+	fmt.Println(enc)
 	s.Lock()
 	defer s.Unlock()
 
@@ -87,24 +96,43 @@ func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 
-	dec := json.NewDecoder(r.Body)
-	defer r.Body.Close()
+	a, err := ioutil.ReadAll(r.Body)
+	var msg Message
 
-	var m HookMessage
-	if err := dec.Decode(&m); err != nil {
-		log.Printf("error decoding message: %v", err)
-		http.Error(w, "invalid request body", 400)
+	var hook HookMessage
+
+	err = json.Unmarshal(a, &hook)
+	if err != nil {
 		return
 	}
+   
+    defer r.Body.Close()
+	test := hook.Alerts
 
-	s.Lock()
-	defer s.Unlock()
 
-	s.alerts = append(s.alerts, &m)
+	s_url := "https://hook.bearychat.com/=bw8Sf/incoming/b42fcb5cdbbda95d831445f071a58ab2"
+	contentType := "application/json;charset=utf-8"
+    
+    for i := 0; i < len(test); i++ {
+	    fmt.Println(test[i].Annotations["description"])
+        msg.Text = test[i].Annotations["description"] 
+        b, err := json.Marshal(msg)
 
-	if len(s.alerts) > s.capacity {
-		a := s.alerts
-		_, a = a[0], a[1:]
-		s.alerts = a
-	}
+        if err != nil {
+           fmt.Println("ss")
+        }
+        
+       body := bytes.NewBuffer(b)
+
+       resp, err := http.Post(s_url, contentType, body)
+       if err != nil {
+           log.Println("Post failed:", err)
+           return
+       }
+
+       defer resp.Body.Close()
+       bo, err := ioutil.ReadAll(resp.Body)
+       fmt.Println("post: \n", string(bo))
+    } 
+
 }

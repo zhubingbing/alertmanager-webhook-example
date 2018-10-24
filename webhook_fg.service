@@ -1,0 +1,9 @@
+[Unit]
+Description=webhook_fg
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/webhook_fg
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
